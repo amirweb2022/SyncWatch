@@ -1,4 +1,4 @@
-﻿# Agent Instructions
+# Agent Instructions
 
 ## Project
 
@@ -47,3 +47,16 @@ SyncWatch is a personal two-person screen-share watch party. Read `PRD.md` befor
 - [ ] No `any`, API routes, server code, database, or Auth were added.
 - [ ] Realtime errors, reconnects, cleanup, and permission failures are handled.
 - [ ] New pure logic has focused Vitest coverage; docs and `.env.example` match behavior.
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use the single-context layout with `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

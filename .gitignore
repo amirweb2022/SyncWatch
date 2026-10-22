@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Next.js build files
+.next/
+out/
+build/
+dist/
+
+# Production
+.vercel/
+.netlify/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+secrets/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing and coverage
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Cache
+.cache/
+.turbo/
+.parcel-cache/
+.eslintcache
+*.cache
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor settings
