@@ -1,1 +1,34 @@
-﻿// TODO: Implement the MemberList component.
+"use client";
+
+import type { LobbyRosterView } from "../lib/lobby-presence-ui";
+import { messages, type Locale } from "../lib/i18n";
+
+export function MemberList({ roster, locale, selfMemberId }: {
+  readonly roster: LobbyRosterView;
+  readonly locale: Locale;
+  readonly selfMemberId: string | null;
+}) {
+  const text = messages[locale];
+  return (
+    <section aria-labelledby="members-title" className="grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="members-title" className="text-xl font-semibold">{text.members}</h2>
+        <span role="status" aria-live="polite" className="text-sm text-zinc-300">{roster.freshness}</span>
+      </div>
+      {roster.members.length === 0 ? <p className="text-sm text-zinc-400">{text.rosterUnknown}</p> : (
+        <ul className="grid gap-2">
+          {roster.members.map((member) => (
+            <li key={member.memberId} className="flex items-center justify-between rounded-xl bg-zinc-950/70 px-4 py-3">
+              <span className="font-medium">{member.displayName}{member.memberId === selfMemberId ? ` (${text.you})` : ""}</span>
+              <span className="flex items-center gap-2 text-sm text-zinc-300">
+                <span aria-label={member.online ? text.online : roster.freshness} className={`size-2 rounded-full ${member.online ? "bg-emerald-400" : "bg-amber-400"}`} />
+                {member.role && <span>{member.role}</span>}
+                {!member.online && <span>{roster.freshness}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

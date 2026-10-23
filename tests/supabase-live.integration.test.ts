@@ -324,11 +324,11 @@ describe.skipIf(!enabled)("live Supabase Realtime integration", () => {
     await second.leave();
   }, 60_000);
 
-  it("reports connection/configuration errors and releases failed sessions", async () => {
+  it("reports configuration errors and releases failed sessions", async () => {
     const session = createLobbySession({ createChannel: () => { throw new Error("live test configuration failure"); } });
     sessions.add(session);
     const result = await session.join("ZX2345", "Connection test");
-    expect(result).toMatchObject({ ok: false, reason: "connection" });
+    expect(result).toMatchObject({ ok: false, reason: "configuration" });
     expect(session.getSnapshot().status).toBe("idle");
   });
 });

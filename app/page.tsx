@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { createLobbyEntryController } from "../lib/lobby-entry";
 import { createDisplayNamePreference } from "../lib/display-name-preference";
 import { messages, type Locale } from "../lib/i18n";
-import { createLobbySession } from "../lib/realtime/session";
+import { getBrowserLobbySession } from "../lib/realtime/browser-session";
 
 export default function HomePage() {
   const router = useRouter();
   const locale: Locale = "fa";
   const text = messages[locale];
   const controller = useMemo(() => createLobbyEntryController(
-    createLobbySession(), createDisplayNamePreference(), (code) => router.push(`/lobby/${code}`),
+    getBrowserLobbySession(), createDisplayNamePreference(), (code) => router.push(`/lobby/${code}`),
   ), [router]);
   const [displayName, setDisplayName] = useState(() => controller.getDisplayName());
   const [code, setCode] = useState("");

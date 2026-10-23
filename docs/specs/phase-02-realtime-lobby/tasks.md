@@ -210,6 +210,15 @@ Task 08 remains incomplete. Task 09 remains pending/not implemented. Capacity re
 
 ## 11 — Presence and connection status UI
 
+**Status:** Complete
+
+**Implementation record:** Added a browser-only shared lobby session accessor so Task 10's confirmed create/join session is the same session consumed by `/lobby/[code]`. Added a Zustand snapshot mirror, localized member roster with derived host/self/online labels, stale/unknown presence labels, connection/reconnecting/exhausted states, manual retry, and leave action. Route cleanup leaves the session and unsubscribes the store; lifecycle remains in `LobbySession`.
+
+**RED -> GREEN -> REFACTOR:** RED: focused `tests/lobby-presence-ui.test.ts` initially failed because `lib/lobby-presence-ui` did not exist (Vitest exit 1, expected missing-module failure). GREEN: added behavior checks for member/host display, host migration, stale roster, reconnecting/exhausted states, retry delegation/navigation, leave cleanup/navigation, and shared session identity; focused suite passes 7/7. One expectation was corrected after the first implementation run showed the view intentionally returns a localized freshness label rather than an internal enum. REFACTOR: kept pure roster projection and controller behavior outside React, left channel lifecycle in the session, shared one in-memory session across entry and lobby routes, and added no UI test dependency.
+
+**Verification:** Focused `npm.cmd test -- --run tests/lobby-presence-ui.test.ts` exit 0 (7 passed); full `npm.cmd test` exit 0 (76 passed, 8 opt-in live tests skipped); `npm.cmd run typecheck` exit 0; `npm.cmd run lint` exit 0; `npm.cmd run build` exit 0. Live Supabase tests were not run because Task 11 changes presentation/session wiring only; skipped tests are not counted as passes.
+
+**Remaining limitations:** No UI rendering library is installed, so member markup and button visibility are not asserted through DOM rendering. The pure presentation/controller seam and production build verify the available test boundary. Direct lobby links use the locally saved display name, falling back to a localized guest label if none is saved.
 **Blocked by:** 06, 07, 10
 
 **Delivers:** Localized member/host roster, stale/unknown state during outages, reconnect/exhausted status, and leave action.
