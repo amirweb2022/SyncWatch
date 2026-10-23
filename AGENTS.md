@@ -49,6 +49,22 @@ SyncWatch is a personal two-person screen-share watch party. Read `PRD.md` befor
 - [ ] New pure logic has focused Vitest coverage; docs and `.env.example` match behavior.
 ## Agent skills
 
+## Skills and Development Workflow
+
+- Use a docs-first, spec-driven development workflow.
+- Before planning or implementing a task, inspect the available installed skills.
+- Select and read only the skills relevant to the current task.
+- Follow the selected skill's instructions.
+- Do not invoke unrelated skills.
+- Never assume a skill exists without checking.
+- Follow strict TDD for every implementation task: RED → GREEN → REFACTOR.
+- Write failing tests before production code.
+- Keep tasks small and independently verifiable.
+- Update tasks.md and progress.md after each task.
+- Preserve architectural decisions in design.md.
+- If a skill conflicts with PRD.md or an explicit project constraint, report the conflict before proceeding.
+- Never implement multiple tasks in one execution unless explicitly requested.
+
 ### Issue tracker
 
 Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
