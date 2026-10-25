@@ -2,7 +2,8 @@ import { MAX_LOBBY_MEMBERS } from "../config";
 import { generateLobbyCode, generateMemberId, normalizeDisplayName, validateLobbyCode } from "../code";
 import { createLobbyChannel, type ChannelStatus, type LobbyChannel } from "./channel";
 import { decideObservedAdmission, electHost, normalizePresenceSnapshot } from "./presence-policy";
-import type { PresenceMetadata } from "./events";
+import type { PresenceMetadata, RealtimeEvent } from "./events";
+import type { SendResult } from "./channel";
 import { MAX_AUTOMATIC_RECONNECT_ATTEMPTS, reconnectDelay } from "./retry-policy";
 
 export type LobbySessionStatus = "idle" | "connecting" | "joined" | "reconnecting" | "error";
@@ -41,6 +42,8 @@ export interface LobbySession {
   subscribe(listener: (snapshot: LobbySessionSnapshot) => void): () => void;
   leave(): Promise<void>;
   retry(): Promise<LobbySessionResult>;
+  sendRealtimeEvent(event: RealtimeEvent): Promise<SendResult>;
+  subscribeRealtimeEvents(listener: (event: RealtimeEvent) => void): () => void;
 }
 
 const EMPTY_JOIN_SYNC_TIMEOUT_MS = 8_000;
@@ -77,6 +80,8 @@ export function createLobbySession(dependencies: LobbySessionDependencies = {}):
   let sessionContext: { code: string; name: string; memberId: string } | null = null;
   let reconnecting = false;
   const listeners = new Set<(value: LobbySessionSnapshot) => void>();
+  const realtimeListeners = new Set<(event: RealtimeEvent) => void>();
+  const eventUnsubscribers = new WeakMap<LobbyChannel, () => void>();
 
   function publish(next: LobbySessionSnapshot): void {
     snapshot = Object.freeze(next);
@@ -84,6 +89,8 @@ export function createLobbySession(dependencies: LobbySessionDependencies = {}):
   }
 
   async function cleanup(channel: LobbyChannel, tracked: boolean): Promise<void> {
+    eventUnsubscribers.get(channel)?.();
+    eventUnsubscribers.delete(channel);
     channel.detach();
     if (tracked) {
       try { await channel.untrack(); } catch { /* Best effort during failed setup. */ }
@@ -108,6 +115,9 @@ export function createLobbySession(dependencies: LobbySessionDependencies = {}):
       return failure(error instanceof Error && error.message.includes("configuration") ? "configuration" : "connection");
     }
     activeChannel = channel;
+    eventUnsubscribers.set(channel, channel.onEvent(({ event }) => {
+      for (const listener of realtimeListeners) listener(event);
+    }));
     publish({ ...EMPTY_SNAPSHOT, status: "connecting", code, selfMemberId: memberId });
 
     return new Promise((resolve) => {
@@ -329,6 +339,13 @@ export function createLobbySession(dependencies: LobbySessionDependencies = {}):
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    sendRealtimeEvent(event) {
+      return activeChannel ? activeChannel.send(event) : Promise.resolve({ ok: false, reason: "detached" });
+    },
+    subscribeRealtimeEvents(listener) {
+      realtimeListeners.add(listener);
+      return () => realtimeListeners.delete(listener);
     },
     async retry() {
       if (snapshot.status !== "error" || !snapshot.error?.retryable || !sessionContext) {

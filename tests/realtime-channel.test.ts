@@ -7,6 +7,7 @@ const supabase = vi.hoisted(() => ({
     presenceState: vi.fn(),
     track: vi.fn(),
     untrack: vi.fn(),
+    send: vi.fn(),
   },
   createClient: vi.fn(),
   removeChannel: vi.fn(),
@@ -54,6 +55,7 @@ describe("lobby channel adapter", () => {
     supabase.channel.presenceState.mockReset().mockReturnValue({});
     supabase.channel.track.mockReset().mockResolvedValue("ok");
     supabase.channel.untrack.mockReset().mockResolvedValue("ok");
+    supabase.channel.send.mockReset().mockResolvedValue("ok");
     supabase.createClient.mockReset().mockReturnValue({
       channel: supabase.channelFactory,
       removeChannel: supabase.removeChannel,
@@ -127,10 +129,43 @@ describe("lobby channel adapter", () => {
     const eventHandler = supabase.channel.on.mock.calls.find((call) => call[0] === "broadcast")?.[2] as
       | ((payload: unknown) => void)
       | undefined;
-    eventHandler?.({ payload: { type: "share:started", senderId: "member-2" } });
+    eventHandler?.({ payload: { type: "share:started", senderId: "member-2", sessionId: "generation-1" } });
     eventHandler?.({ payload: { type: "share:started", senderId: 42 } });
     expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith({ type: "event", event: { type: "share:started", senderId: "member-2" } });
+    expect(callback).toHaveBeenCalledWith({ type: "event", event: { type: "share:started", senderId: "member-2", sessionId: "generation-1" } });
+  });
+
+  it("sends typed events as the syncwatch Broadcast payload", async () => {
+    const adapter = createLobbyChannel("ABC234", "member-1");
+    const event = { type: "share:started", senderId: "member-1", sessionId: "generation-1" } as const;
+    await expect(adapter.send(event)).resolves.toEqual({ ok: true });
+    expect(supabase.channel.send).toHaveBeenCalledWith({ type: "broadcast", event: "syncwatch", payload: event });
+  });
+
+  it("returns a safe failure result when Broadcast send fails", async () => {
+    const adapter = createLobbyChannel("ABC234", "member-1");
+    supabase.channel.send.mockResolvedValueOnce("error");
+    await expect(adapter.send({ type: "share:started", senderId: "member-1", sessionId: "generation-1" }))
+      .resolves.toEqual({ ok: false, reason: "send-failed" });
+  });
+
+  it("does not send after detach or removal", async () => {
+    const adapter = createLobbyChannel("ABC234", "member-1");
+    const event = { type: "share:started", senderId: "member-1", sessionId: "generation-1" } as const;
+    adapter.detach();
+    await expect(adapter.send(event)).resolves.toEqual({ ok: false, reason: "detached" });
+    const removedAdapter = createLobbyChannel("ABC234", "member-1");
+    await removedAdapter.remove();
+    await expect(removedAdapter.send(event)).resolves.toEqual({ ok: false, reason: "detached" });
+    expect(supabase.channel.send).not.toHaveBeenCalled();
+  });
+
+  it("contains thrown transport errors in the send result", async () => {
+    const adapter = createLobbyChannel("ABC234", "member-1");
+    supabase.channel.send.mockRejectedValueOnce(new Error("private transport details"));
+    const result = await adapter.send({ type: "share:started", senderId: "member-1", sessionId: "generation-1" });
+    expect(result).toEqual({ ok: false, reason: "send-failed" });
+    expect(result).not.toHaveProperty("error");
   });
 
   it("tracks metadata, untracks presence, detaches callbacks, and removes once", async () => {
@@ -153,7 +188,7 @@ describe("lobby channel adapter", () => {
       | ((payload: unknown) => void)
       | undefined;
     presenceHandler?.();
-    eventHandler?.({ payload: { type: "share:started", senderId: "member-2" } });
+    eventHandler?.({ payload: { type: "share:started", senderId: "member-2", sessionId: "generation-1" } });
     expect(listener).toHaveBeenCalledTimes(0);
   });
 

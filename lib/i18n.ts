@@ -28,6 +28,8 @@
     leaveLobby: "خروج از اتاق",
     connectionOnline: "متصل",
     unknownMember: "مهمان",
+    shareStart: "شروع اشتراک‌گذاری", shareStop: "پایان اشتراک‌گذاری", shareRequest: "درخواست دوباره از میزبان", shareActive: "در حال اشتراک‌گذاری", fullscreenFailed: "تمام‌صفحه در این مرورگر در دسترس نیست.", captureCancelled: "اشتراک‌گذاری لغو شد.", captureHint: "در پنجرهٔ مرورگر، برگهٔ موردنظر را انتخاب و صدای برگه را فعال کنید.",
+    streamStopped: "اشتراک‌گذاری متوقف است", streamLoading: "در حال دریافت تصویر…", streamConnecting: "در حال اتصال به تصویر…", streamPlaying: "در حال پخش", streamInterrupted: "ارتباط موقتاً قطع شد؛ در حال بازیابی…", streamFailed: "اتصال تصویر برقرار نشد. شبکه را بررسی کنید.", captureFailed: "دریافت تصویر انجام نشد. دوباره تلاش کنید.", captureDenied: "اجازهٔ اشتراک‌گذاری داده نشد. دسترسی مرورگر را بررسی کنید.", captureUnsupported: "اشتراک‌گذاری صفحه در این مرورگر پشتیبانی نمی‌شود. از Chrome یا Edge دسکتاپ استفاده کنید.", missingAudio: "تصویر ارسال می‌شود اما صدای تب در دسترس نیست.", enablePlayback: "پخش صدا و تصویر", fullscreen: "تمام‌صفحه", quality: "کیفیت درخواستی", desktopCaptureOnly: "برای میزبانی از Chrome یا Edge دسکتاپ استفاده کنید.",
   },
   en: {
     appName: "SyncWatch",
@@ -58,6 +60,8 @@
     leaveLobby: "Leave lobby",
     connectionOnline: "Connected",
     unknownMember: "Guest",
+    shareStart: "Start sharing", shareStop: "Stop sharing", shareRequest: "Request again from host", shareActive: "Sharing", fullscreenFailed: "Fullscreen is unavailable in this browser.", captureCancelled: "Screen sharing was cancelled.", captureHint: "In the browser picker, choose the tab and enable tab audio.",
+    streamStopped: "Sharing is stopped", streamLoading: "Waiting for video…", streamConnecting: "Connecting to video…", streamPlaying: "Playing", streamInterrupted: "Connection interrupted; recovering…", streamFailed: "Could not connect to the video. Check your network.", captureFailed: "Could not capture the screen. Try again.", captureDenied: "Screen sharing permission was denied. Check browser permissions.", captureUnsupported: "Screen sharing is unavailable. Use desktop Chrome or Edge.", missingAudio: "Video is sharing, but tab audio is unavailable.", enablePlayback: "Enable playback", fullscreen: "Fullscreen", quality: "Requested quality", desktopCaptureOnly: "Use desktop Chrome or Edge to host.",
   },
 } as const;
 

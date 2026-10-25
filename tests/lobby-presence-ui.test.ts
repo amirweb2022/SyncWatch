@@ -21,6 +21,8 @@ function makeSession(snapshot: LobbySessionSnapshot = initial) {
       return () => listeners.delete(listener);
     }),
     leave: vi.fn(async () => undefined), retry: vi.fn(async (): Promise<LobbySessionResult> => ({ ok: true, code: "ABC234" })),
+    sendRealtimeEvent: vi.fn(async () => ({ ok: false as const, reason: "detached" as const })),
+    subscribeRealtimeEvents: vi.fn(() => () => undefined),
   };
   return {
     session,

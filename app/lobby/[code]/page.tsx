@@ -9,6 +9,12 @@ import { createLobbyPresenceController, getLobbyConnectionErrorText, getLobbyRos
 import { messages, type Locale } from "../../../lib/i18n";
 import { getBrowserLobbySession } from "../../../lib/realtime/browser-session";
 import { useLobbyStore } from "../../../store/lobby";
+import { useStreamStore } from "../../../store/stream";
+import { getStreamUiView } from "../../../lib/stream-ui";
+import { ShareControls } from "../../../components/ShareControls";
+import { VideoStage } from "../../../components/VideoStage";
+import { createStreamSession } from "../../../lib/webrtc/session";
+import { createCaptureManager } from "../../../lib/webrtc/capture";
 
 export default function LobbyPage() {
   const params = useParams<{ code: string }>();
@@ -16,12 +22,17 @@ export default function LobbyPage() {
   const locale: Locale = "fa";
   const text = messages[locale];
   const [session] = useState(() => getBrowserLobbySession());
+  const [streamSession, setStreamSession] = useState<ReturnType<typeof createStreamSession> | null>(null);
+  const [media, setMedia] = useState<{ local: MediaStream | null; remote: MediaStream | null; audio: "present" | "missing" | null }>({ local: null, remote: null, audio: null });
+  const [quality, setQuality] = useState<"480p" | "720p" | "1080p">("720p");
   const [displayName] = useState(() => createDisplayNamePreference().load());
   const memberName = displayName || text.unknownMember;
   const [actionPending, setActionPending] = useState(false);
   const snapshot = useLobbyStore((state) => state);
   const bind = useLobbyStore((state) => state.bind);
   const reset = useLobbyStore((state) => state.reset);
+  const streamSnapshot = useStreamStore((state) => state);
+  const bindStream = useStreamStore((state) => state.bind);
   const roster = useMemo(() => getLobbyRosterView(snapshot, locale), [snapshot, locale]);
   const navigate = useCallback((path: string) => router.replace(path), [router]);
   const controller = useMemo(() => createLobbyPresenceController(session, locale, navigate), [session, locale, navigate]);
@@ -42,6 +53,21 @@ export default function LobbyPage() {
     return unsubscribe;
   }, [bind, memberName, params.code, reset, router, session]);
 
+  useEffect(() => {
+    const coordinator = createStreamSession({
+      lobby: session,
+      channel: { send: (event) => session.sendRealtimeEvent(event), onEvent: (listener) => session.subscribeRealtimeEvents(listener) },
+      capture: createCaptureManager(),
+    });
+    setStreamSession(coordinator);
+    const unbind = bindStream(coordinator);
+    const unbindMedia = coordinator.subscribeMedia(setMedia);
+    setMedia(coordinator.getMedia());
+    return () => { unbind(); unbindMedia(); void coordinator.dispose(); };
+  }, [bindStream, session]);
+  const desktop = typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+  const streamView = getStreamUiView(streamSnapshot, desktop, text);
+
   async function retry() {
     setActionPending(true);
     try { await controller.retry(); } finally { setActionPending(false); }
@@ -49,7 +75,7 @@ export default function LobbyPage() {
 
   async function leave() {
     setActionPending(true);
-    try { await controller.leave(); } finally { setActionPending(false); }
+    try { if (streamSession) await streamSession.stop(); await controller.leave(); } finally { setActionPending(false); }
   }
 
   const connection = controller.getConnectionView();
@@ -65,6 +91,10 @@ export default function LobbyPage() {
       </header>
 
       <MemberList roster={roster} locale={locale} selfMemberId={snapshot.selfMemberId} />
+
+      {streamSession && <ShareControls session={streamSession} locale={locale} view={streamView} desktop={desktop} host={streamSnapshot.role === "host"} quality={quality} onQuality={setQuality} />}
+      <VideoStage stream={streamSnapshot.role === "host" ? media.local : media.remote} locale={locale} muted={streamSnapshot.role === "host"} status={streamView.status} onPlaying={() => streamSession?.reportPlayback(true)} onWaiting={() => streamSession?.reportPlayback(false)} />
+      {streamSnapshot.role === "host" && media.audio === "missing" && <p role="status" className="rounded-xl border border-amber-900 p-3 text-amber-200">{text.missingAudio}</p>}
 
       {connectionError && <p role="alert" className="rounded-xl border border-rose-900 bg-rose-950/60 p-4 text-rose-200">{connectionError}</p>}
 

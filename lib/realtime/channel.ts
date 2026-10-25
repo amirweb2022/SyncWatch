@@ -14,12 +14,15 @@ export type EventListener = (event: ChannelEvent) => void;
 
 export interface LobbyChannel {
   subscribe(listener: ChannelListener): void;
-  onEvent(listener: EventListener): void;
+  onEvent(listener: EventListener): () => void;
+  send(event: RealtimeEvent): Promise<SendResult>;
   track(metadata: PresenceMetadata): Promise<void>;
   untrack(): Promise<void>;
   detach(): void;
   remove(): Promise<void>;
 }
+
+export type SendResult = { readonly ok: true } | { readonly ok: false; readonly reason: "detached" | "send-failed" };
 
 type ErrorStatus = Extract<ChannelStatus, { readonly type: "status-error" }>["status"];
 
@@ -87,12 +90,23 @@ export function createLobbyChannel(
       void subscription;
     },
     onEvent(listener) {
+      let active = true;
       const handler = (message: { readonly payload?: unknown }) => {
-        if (detached) return;
+        if (detached || !active) return;
         const event = parseRealtimeEvent(message.payload);
         if (event) listener({ type: "event", event });
       };
       channel.on("broadcast", { event: "syncwatch" }, handler);
+      return () => { active = false; };
+    },
+    async send(event) {
+      if (detached || removed) return { ok: false, reason: "detached" };
+      try {
+        const result = await channel.send({ type: "broadcast", event: "syncwatch", payload: event });
+        return result === "ok" ? { ok: true } : { ok: false, reason: "send-failed" };
+      } catch {
+        return { ok: false, reason: "send-failed" };
+      }
     },
     async track(metadata) {
       const parsed = parsePresenceMetadata(metadata);

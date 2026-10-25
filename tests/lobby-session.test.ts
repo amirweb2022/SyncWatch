@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LobbyChannel, ChannelListener } from "../lib/realtime/channel";
+import type { RealtimeEvent } from "../lib/realtime/events";
 import { createLobbySession } from "../lib/realtime/session";
 import { reconnectDelay } from "../lib/realtime/retry-policy";
 
@@ -13,6 +14,7 @@ function makeChannel(): FakeChannel {
   const channel: FakeChannel = {
     subscribe: vi.fn((next) => { listener = next; }),
     onEvent: vi.fn(),
+    send: vi.fn(async () => ({ ok: true as const })),
     track: vi.fn(async () => undefined),
     untrack: vi.fn(async () => undefined),
     detach: vi.fn(),
@@ -376,6 +378,22 @@ describe("lobby session creation and joining", () => {
     await lobby.leave();
     expect(cancel).toHaveBeenCalledOnce();
     expect(reconnectChannels).toHaveLength(1);
+  });
+
+  it("forwards typed signaling through the active channel and detaches it on leave", async () => {
+    const channel = makeChannel();
+    const lobby = createLobbySession({ createChannel: () => channel, createMemberId: () => "self" });
+    const listener = vi.fn();
+    const unsubscribe = lobby.subscribeRealtimeEvents(listener);
+    const joined = lobby.join("ABC234", "Alex");
+    channel.notify({ type: "subscribed" }); channel.sync({ host: [host] }); await Promise.resolve(); channel.sync({ host: [host], self: [self] }); await joined;
+    const event: RealtimeEvent = { type: "share:started", senderId: "host", sessionId: "generation-1" };
+    (channel.onEvent as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]({ type: "event", event });
+    expect(listener).toHaveBeenCalledWith(event);
+    await expect(lobby.sendRealtimeEvent(event)).resolves.toEqual({ ok: true });
+    await lobby.leave();
+    await expect(lobby.sendRealtimeEvent(event)).resolves.toEqual({ ok: false, reason: "detached" });
+    unsubscribe();
   });
 });
 

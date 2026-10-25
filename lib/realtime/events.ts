@@ -6,13 +6,18 @@ export interface TargetedEvent extends EventBase {
   targetId: string;
 }
 
+export type GenerationId = string;
+export type QualityPreset = "480p" | "720p" | "1080p";
+export type StreamFailure = "capture-unsupported" | "capture-denied" | "capture-failed" | "connection-failed" | "playback-failed";
+export type StreamStatus = "idle" | "requesting-capture" | "sharing" | "loading" | "connecting" | "playing" | "interrupted" | "failed";
+
 export type RealtimeEvent =
-  | (TargetedEvent & { type: "rtc:offer"; description: RTCSessionDescriptionInit })
-  | (TargetedEvent & { type: "rtc:answer"; description: RTCSessionDescriptionInit })
-  | (TargetedEvent & { type: "rtc:ice"; candidate: RTCIceCandidateInit })
-  | (EventBase & { type: "share:started" })
-  | (EventBase & { type: "share:stopped" })
-  | (EventBase & { type: "share:request" })
+  | (TargetedEvent & { type: "rtc:offer"; sessionId: GenerationId; description: RTCSessionDescriptionInit })
+  | (TargetedEvent & { type: "rtc:answer"; sessionId: GenerationId; description: RTCSessionDescriptionInit })
+  | (TargetedEvent & { type: "rtc:ice"; sessionId: GenerationId; candidate: RTCIceCandidateInit })
+  | (EventBase & { type: "share:started"; sessionId: GenerationId })
+  | (EventBase & { type: "share:stopped"; sessionId: GenerationId })
+  | (EventBase & { type: "share:request"; sessionId: GenerationId })
   | (EventBase & {
       type: "chat:message";
       messageId: string;
@@ -28,6 +33,7 @@ export interface PresenceMetadata {
 }
 
 const MAX_ID_LENGTH = 128;
+const MAX_GENERATION_ID_LENGTH = 128;
 const MAX_DESCRIPTION_LENGTH = 1_000_000;
 const MAX_CANDIDATE_LENGTH = 10_000;
 
@@ -39,14 +45,22 @@ function isBoundedString(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
 }
 
+function isBoundedIdentifier(value: unknown, maximum: number): value is string {
+  return isBoundedString(value, maximum) && !/\p{Cc}/u.test(value);
+}
+
 function isIdentifier(value: unknown): value is string {
-  return isBoundedString(value, MAX_ID_LENGTH) && !/[\u0000-\u001f\u007f]/u.test(value);
+  return isBoundedIdentifier(value, MAX_ID_LENGTH);
+}
+
+function isGenerationId(value: unknown): value is GenerationId {
+  return isBoundedIdentifier(value, MAX_GENERATION_ID_LENGTH);
 }
 
 function parseDescription(value: unknown): RTCSessionDescriptionInit | null {
   if (!isRecord(value) || (value.type !== "offer" && value.type !== "answer")) return null;
-  if (value.sdp !== undefined && (typeof value.sdp !== "string" || value.sdp.length > MAX_DESCRIPTION_LENGTH)) return null;
-  return Object.freeze({ type: value.type, ...(value.sdp === undefined ? {} : { sdp: value.sdp }) });
+  if (!isBoundedString(value.sdp, MAX_DESCRIPTION_LENGTH)) return null;
+  return Object.freeze({ type: value.type, sdp: value.sdp });
 }
 
 function parseCandidate(value: unknown): RTCIceCandidateInit | null {
@@ -72,21 +86,21 @@ export function parseRealtimeEvent(value: unknown): RealtimeEvent | null {
   switch (value.type) {
     case "rtc:offer":
     case "rtc:answer": {
-      if (!isIdentifier(value.targetId)) return null;
+      if (!isIdentifier(value.targetId) || value.targetId === senderId || !isGenerationId(value.sessionId)) return null;
       const description = parseDescription(value.description);
       if (!description || (value.type === "rtc:offer" && description.type !== "offer") ||
           (value.type === "rtc:answer" && description.type !== "answer")) return null;
-      return Object.freeze({ type: value.type, senderId, targetId: value.targetId, description });
+      return Object.freeze({ type: value.type, senderId, targetId: value.targetId, sessionId: value.sessionId, description });
     }
     case "rtc:ice": {
-      if (!isIdentifier(value.targetId)) return null;
+      if (!isIdentifier(value.targetId) || value.targetId === senderId || !isGenerationId(value.sessionId)) return null;
       const candidate = parseCandidate(value.candidate);
-      return candidate ? Object.freeze({ type: "rtc:ice", senderId, targetId: value.targetId, candidate }) : null;
+      return candidate ? Object.freeze({ type: "rtc:ice", senderId, targetId: value.targetId, sessionId: value.sessionId, candidate }) : null;
     }
     case "share:started":
     case "share:stopped":
     case "share:request":
-      return Object.freeze({ type: value.type, senderId });
+      return isGenerationId(value.sessionId) ? Object.freeze({ type: value.type, senderId, sessionId: value.sessionId }) : null;
     case "chat:message": {
       const { messageId, name, text, sentAt } = value;
       if (!isIdentifier(messageId) || !isBoundedString(name, 40) ||

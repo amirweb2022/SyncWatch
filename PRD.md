@@ -51,17 +51,19 @@ SyncWatch is a free, personal watch-party app for two people by default. A host 
 ## Typed Broadcast event schema
 
 All events carry `senderId`; directed WebRTC events also carry `targetId`.
+Every WebRTC and share lifecycle event carries a required `sessionId`, an opaque generation identifier of 1–128 characters with no control characters. It identifies the active stream/negotiation generation, not the lobby or a member. Receivers reject missing or invalid session IDs. Chat events do not carry `sessionId`.
 
 ```ts
 interface EventBase { senderId: string }
 interface TargetedEvent extends EventBase { targetId: string }
+type GenerationId = string; // validated to 1–128 characters without control characters
 type SignalEvent =
-  | (TargetedEvent & { type: "rtc:offer"; description: RTCSessionDescriptionInit })
-  | (TargetedEvent & { type: "rtc:answer"; description: RTCSessionDescriptionInit })
-  | (TargetedEvent & { type: "rtc:ice"; candidate: RTCIceCandidateInit })
-  | (EventBase & { type: "share:started" })
-  | (EventBase & { type: "share:stopped" })
-  | (EventBase & { type: "share:request" })
+  | (TargetedEvent & { type: "rtc:offer"; sessionId: GenerationId; description: RTCSessionDescriptionInit })
+  | (TargetedEvent & { type: "rtc:answer"; sessionId: GenerationId; description: RTCSessionDescriptionInit })
+  | (TargetedEvent & { type: "rtc:ice"; sessionId: GenerationId; candidate: RTCIceCandidateInit })
+  | (EventBase & { type: "share:started"; sessionId: GenerationId })
+  | (EventBase & { type: "share:stopped"; sessionId: GenerationId })
+  | (EventBase & { type: "share:request"; sessionId: GenerationId })
   | (EventBase & { type: "chat:message"; messageId: string; name: string; text: string; sentAt: number });
 ```
 
