@@ -198,3 +198,13 @@ sequenceDiagram
 - Signaling/session adapter fake: malformed payload, wrong sender/target, non-member, role mismatch, late join, reconnect, host migration, Broadcast send failure, and duplicate messages.
 - UI seam: state projection and localized text assertions; DOM accessibility review/manual checks because no render test dependency currently exists.
 - Real browser/device verification remains separate: actual browser SDP, codecs, ICE paths, autoplay, audio capture, fullscreen, and media rendering cannot be established by mocks.
+
+### Late viewer generation discovery
+
+`share:started` is an ephemeral Broadcast and can be missed before a viewer subscribes. During an active generation, the host reconciles new Presence members by sending its targeted offer. A viewer with no known generation may adopt the generation from that offer only when it is addressed to its own current member ID and comes from the present elected host. Sender, recipient, membership, and typed event validation stay enforced; no additional channel or durable stream state is introduced.
+
+### Browser diagnostic boundary
+
+- The real-capture Playwright diagnostic is opt-in and test-only. It observes the native capture track, sender tracks, peer state, remote video, and sanitized event types without changing `getDisplayMedia`, SDP/candidate signaling, or application session behavior.
+- It runs headed in installed Edge with no fake-media flags. The user selects the capture source in the native picker. Diagnostic records include offer/answer types and candidate-presence booleans only; they exclude SDP, candidate strings, and environment values.
+- A successful native window-share run reached viewer playback, so the synthetic test and native capture test currently share the same successful transport path. No application fix should be made until the reported normal-browser failure is reproduced at an observed stage.

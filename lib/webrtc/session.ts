@@ -2,6 +2,7 @@ import type { LobbySessionSnapshot } from "../realtime/session";
 import type { GenerationId, QualityPreset, RealtimeEvent, StreamStatus } from "../realtime/events";
 import type { CaptureOutcome, CaptureSession } from "./capture";
 import { createPeerManager, type PeerAdapter, type PeerManager } from "./peer-manager";
+import { logWebRtcDiagnostic } from "./diagnostics";
 
 export interface StreamSnapshot {
   readonly status: StreamStatus;
@@ -116,7 +117,7 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
     viewerHostId = hostId;
     viewerOfferApplied = false;
     const peer = makePeer({
-      selfMemberId: selfId, remoteMemberId: hostId, sessionId,
+      lobbyId: lobby().code, hostMemberId: hostId, selfMemberId: selfId, remoteMemberId: hostId, sessionId,
       peerFactory: makeNativePeer,
       send: (event) => dependencies.channel.send(event),
       onTrack: (event) => {
@@ -183,12 +184,15 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
     return viewerPeer;
   };
   const offerRequest = (event: Extract<RealtimeEvent, { type: "share:request" }>): void => {
-    if (currentRole() !== "host" || !capture || event.sessionId !== generation || event.senderId === lobby().selfMemberId || !present(event.senderId)) return;
+    if (currentRole() !== "host" || !capture || event.sessionId !== generation || event.senderId === lobby().selfMemberId || !present(event.senderId)) {
+      logWebRtcDiagnostic("signaling rejected", { lobbyId: lobby().code, localParticipantId: lobby().selfMemberId, remoteParticipantId: event.senderId, hostId: lobby().hostMemberId, streamSessionId: event.sessionId, reason: "share-request-wrong-role-session-or-member" });
+      return;
+    }
     if (hostPeers.has(event.senderId)) return;
     const selfId = lobby().selfMemberId;
     if (!selfId) return;
     const peer = makePeer({
-      selfMemberId: selfId, remoteMemberId: event.senderId, sessionId: event.sessionId,
+      lobbyId: lobby().code, hostMemberId: selfId, selfMemberId: selfId, remoteMemberId: event.senderId, sessionId: event.sessionId,
       peerFactory: makeNativePeer,
       send: (signal) => dependencies.channel.send(signal),
       onError: () => {
@@ -258,8 +262,25 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
   let pendingShareStart: RealtimeEvent | null = null;
   const handleEvent = (event: RealtimeEvent): void => {
     if (event.type === "chat:message") return;
-    if (disposed || !generation && event.type !== "share:started") return;
+    if (disposed) return;
+    if (!generation && event.type === "rtc:offer") {
+      const value = lobby();
+      if (currentRole() === "viewer" && value.presenceStatus === "current" && event.senderId === value.hostMemberId && event.targetId === value.selfMemberId && present(event.senderId)) {
+        generation = event.sessionId;
+        publish({ status: "loading", sessionId: generation, role: "viewer", failure: null });
+        logWebRtcDiagnostic("adopted session from late host offer", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: generation });
+      } else {
+        logWebRtcDiagnostic("signaling rejected", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId, reason: "cannot-adopt-offer-outside-current-host-recipient-context" });
+      }
+    }
+    if (!generation && event.type !== "share:started") {
+      logWebRtcDiagnostic("signaling rejected", { lobbyId: lobby().code, localParticipantId: lobby().selfMemberId, remoteParticipantId: "targetId" in event ? event.senderId : null, hostId: lobby().hostMemberId, streamSessionId: "sessionId" in event ? event.sessionId : null, reason: "no-active-session" });
+      return;
+    }
     const value = lobby();
+    if (event.type === "rtc:offer" || event.type === "rtc:answer" || event.type === "rtc:ice") {
+      logWebRtcDiagnostic(`${event.type} received`, { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId });
+    }
     if (value.presenceStatus !== "current" || !value.selfMemberId || !present(event.senderId)) {
       if (event.type === "share:started") pendingShareStart = event;
       return;
@@ -268,6 +289,7 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
       if (currentRole() !== "viewer" || event.senderId !== value.hostMemberId) return;
       if (generation) return;
       generation = event.sessionId;
+      logWebRtcDiagnostic("share started received", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: generation });
       publish({ status: "loading", sessionId: generation, role: "viewer", failure: null });
       try { ensureViewerPeer(event.senderId, generation); } catch { generation = null; publish({ ...IDLE, role: "viewer", failure: "connection-failed" }); return; }
       const requestedGeneration = generation;
@@ -281,19 +303,28 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
       if (event.senderId === value.hostMemberId && event.sessionId === generation && currentRole() === "viewer") void end(false);
       return;
     }
-    if (event.sessionId !== generation || event.targetId !== value.selfMemberId) return;
+    if (event.sessionId !== generation || event.targetId !== value.selfMemberId) {
+      logWebRtcDiagnostic("signaling rejected", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId, reason: event.sessionId !== generation ? "stale-session" : "wrong-recipient" });
+      return;
+    }
     if (event.type === "rtc:offer") {
-      if (currentRole() !== "viewer" || event.senderId !== value.hostMemberId || !present(event.senderId)) return;
+      if (currentRole() !== "viewer" || event.senderId !== value.hostMemberId || !present(event.senderId)) {
+        logWebRtcDiagnostic("signaling rejected", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId, reason: "offer-from-non-host-or-absent-member" });
+        return;
+      }
       if (viewerOfferApplied) return;
       try { viewerOfferApplied = true; void ensureViewerPeer(event.senderId, event.sessionId).receiveOffer(event.description); publish({ ...snapshot, status: "connecting" }); } catch { viewerOfferApplied = false; /* Invalid lifecycle state. */ }
     } else if (event.type === "rtc:answer") {
       if (currentRole() !== "host" || !present(event.senderId)) return;
       const peer = hostPeers.get(event.senderId);
       if (peer) void peer.receiveAnswer(event.description);
+      else logWebRtcDiagnostic("signaling rejected", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId, reason: "no-peer-for-answer" });
     } else if (event.type === "rtc:ice") {
       if (!present(event.senderId)) return;
+      logWebRtcDiagnostic("rtc:ice received", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId });
       const peer = currentRole() === "host" ? hostPeers.get(event.senderId) : event.senderId === value.hostMemberId ? viewerPeer : null;
       if (peer) void peer.addIceCandidate(event.candidate);
+      else logWebRtcDiagnostic("signaling rejected", { lobbyId: value.code, localParticipantId: value.selfMemberId, remoteParticipantId: event.senderId, hostId: value.hostMemberId, streamSessionId: event.sessionId, reason: "no-peer-for-ice" });
     }
   };
   const unsubscribeEvents = dependencies.channel.onEvent(handleEvent);
@@ -357,6 +388,7 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
       captureAudio = outcome.capture.audio;
       publishMedia();
       generation = makeSessionId();
+      logWebRtcDiagnostic("share started", { lobbyId: lobby().code, localParticipantId: lobby().selfMemberId, remoteParticipantId: null, hostId: lobby().hostMemberId, streamSessionId: generation });
       publish({ status: "sharing", sessionId: generation, role: "host", failure: null });
       const selfId = lobby().selfMemberId;
       if (!selfId) { await end(false); return; }

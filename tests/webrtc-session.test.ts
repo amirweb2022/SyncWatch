@@ -13,6 +13,7 @@ function roster(host = "host", viewer = "viewer"): LobbySessionSnapshot {
 }
 
 function setup(role: "host" | "viewer" = "host") {
+  let generationNumber = 0;
   let snapshot = role === "host" ? roster() : { ...roster(), selfMemberId: "viewer" };
   const lobbyListeners = new Set<(value: LobbySessionSnapshot) => void>();
   const eventListeners = new Set<(event: RealtimeEvent) => void>();
@@ -31,7 +32,7 @@ function setup(role: "host" | "viewer" = "host") {
       peers.push(peer);
       return peer;
     },
-    createSessionId: () => "generation-1",
+    createSessionId: () => `generation-${++generationNumber}`,
   };
   const session = createStreamSession(dependencies);
   return {
@@ -129,6 +130,18 @@ describe("stream session Task 06 coordinator", () => {
     expect(value.sent[0]).toMatchObject({ type: "share:started", senderId: "host", sessionId: "generation-1" });
   });
 
+  it("closes the old peer and negotiates a fresh generation after host stop and restart", async () => {
+    const value = setup();
+    await value.session.start("720p");
+    await value.session.stop();
+    await value.session.start("720p");
+    expect(value.captureManager.start).toHaveBeenCalledTimes(2);
+    expect(value.peers).toHaveLength(2);
+    expect(value.peers[0]?.close).toHaveBeenCalledOnce();
+    expect(value.peers[1]?.sessionId).toBe("generation-2");
+    expect(value.sent.filter((event) => event.type === "share:started").map((event) => event.sessionId)).toEqual(["generation-1", "generation-2"]);
+  });
+
   it("publishes the captured local preview to media observers and clears it on stop", async () => {
     const value = setup();
     const updates: Array<{ local: MediaStream | null; remote: MediaStream | null }> = [];
@@ -191,6 +204,15 @@ describe("stream session Task 06 coordinator", () => {
     const value = setup("viewer");
     await value.session.start("720p");
     expect(value.captureManager.start).not.toHaveBeenCalled();
+  });
+
+  it("adopts the current host generation from an offer when the viewer joined after sharing began", () => {
+    const value = setup("viewer");
+    const offer: RealtimeEvent = { type: "rtc:offer", senderId: "host", targetId: "viewer", sessionId: "generation-1", description: { type: "offer", sdp: "offer" } };
+    value.emit(offer);
+    expect(value.session.getSnapshot()).toMatchObject({ status: "connecting", sessionId: "generation-1" });
+    expect(value.peers).toHaveLength(1);
+    expect(value.peers[0]?.receiveOffer).toHaveBeenCalledWith(offer.description);
   });
 
   it("requests the active generation as a viewer and answers only a targeted current-host offer", async () => {

@@ -1,4 +1,5 @@
 import type { GenerationId, RealtimeEvent } from "../realtime/events";
+import { logWebRtcDiagnostic } from "./diagnostics";
 
 export interface PeerAdapter {
   readonly connectionState?: RTCPeerConnectionState;
@@ -8,6 +9,8 @@ export interface PeerAdapter {
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null;
   ontrack: ((event: RTCTrackEvent) => void) | null;
   onconnectionstatechange?: (() => void) | null;
+  oniceconnectionstatechange?: (() => void) | null;
+  readonly iceConnectionState?: RTCIceConnectionState;
   addTrack(track: MediaStreamTrack, stream: MediaStream): RTCRtpSender;
   createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit>;
   createAnswer(): Promise<RTCSessionDescriptionInit>;
@@ -18,6 +21,8 @@ export interface PeerAdapter {
 }
 
 export interface PeerManagerOptions {
+  readonly lobbyId?: string | null;
+  readonly hostMemberId?: string | null;
   readonly selfMemberId: string;
   readonly remoteMemberId: string;
   readonly sessionId: GenerationId;
@@ -50,6 +55,9 @@ export function createPeerManager(options: PeerManagerOptions): PeerManager {
   };
   const send = async (event: RealtimeEvent): Promise<void> => {
     if (closed) return;
+    if (event.type === "rtc:offer" || event.type === "rtc:answer" || event.type === "rtc:ice") {
+      logWebRtcDiagnostic(`${event.type} sent`, { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId });
+    }
     try {
       const result = await options.send(event);
       if (result && !result.ok) fail();
@@ -83,10 +91,17 @@ export function createPeerManager(options: PeerManagerOptions): PeerManager {
     });
   };
   peer.ontrack = (event) => {
+    logWebRtcDiagnostic("ontrack", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId });
     if (!closed) options.onTrack?.(event);
   };
   peer.onconnectionstatechange = () => {
-    if (!closed && peer.connectionState) options.onConnectionState?.(peer.connectionState);
+    if (!closed && peer.connectionState) {
+      logWebRtcDiagnostic("RTCPeerConnection state", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId, state: peer.connectionState });
+      options.onConnectionState?.(peer.connectionState);
+    }
+  };
+  peer.oniceconnectionstatechange = () => {
+    if (!closed && peer.iceConnectionState) logWebRtcDiagnostic("ICE connection state", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: null, streamSessionId: options.sessionId, state: peer.iceConnectionState });
   };
 
   return {
@@ -146,6 +161,7 @@ export function createPeerManager(options: PeerManagerOptions): PeerManager {
       peer.onicecandidate = null;
       peer.ontrack = null;
       peer.onconnectionstatechange = null;
+      peer.oniceconnectionstatechange = null;
       try {
         peer.close();
       } catch {

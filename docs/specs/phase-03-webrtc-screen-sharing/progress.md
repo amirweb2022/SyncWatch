@@ -270,3 +270,50 @@ No defect report was supplied; no production change or regression fix was made f
 | `npm.cmd run build` | 0 | Next.js 15.5.28 optimized production build passed; routes generated successfully. Build output noted `.env.local` as an environment source; no values were recorded. |
 
 Skipped: 8 opt-in `tests/supabase-live.integration.test.ts` tests because live mode was not enabled. Manual Task 10 matrix cases remain not recorded. No browser, device, or network-path verification is claimed by automated checks.
+
+## Late-viewer negotiation regression fix (2026-10-27)
+
+Identity audit found no cross-tab collision: `createLobbySession` invokes `generateMemberId()` independently for each tab's in-memory LobbySession. The ID is stable across that session's retry/reconnect and discarded on leave. Only display name uses localStorage; participant identity has no storage-backed mechanism. Presence determines distinct members and oldest-presence host election.
+
+Root cause was late-join generation discovery. `share:started` is ephemeral; a viewer subscribing after the host announced its active stream never learns the generation. The host's roster reconciliation does send a targeted offer, but the viewer's early event guard rejected all events except `share:started` while generation was null. Therefore the viewer never applied the offer and did not create an answer or process ICE.
+
+Regression test: `tests/webrtc-session.test.ts` now verifies an in-roster viewer adopts the generation from a targeted current-host offer and applies it. Observed RED before implementation (`idle`, null generation); GREEN after implementation.
+
+Development diagnostics were added for lobby/participant/host/generation identifiers, signaling send/receive and rejection reasons, peer and ICE state changes, tracks, and playback failures. Payload contents, SDP, candidates, and credentials are not logged. Real browser two-tab verification has not been performed.
+
+Verification exits will be appended after the requested full checks run.
+
+### Final verification for the 2026-10-27 regression fix
+
+| Command | Exit code | Result |
+| --- | ---: | --- |
+| `npm.cmd test` | 0 | 152 passed, 8 opt-in live Supabase tests skipped; 16 test files passed, 1 skipped. Includes independent LobbySession identity, late-viewer offer adoption, viewer leave/rejoin, host stop/restart generation renewal, duplicate/stale signal rejection, and Strict Mode coordinator replay coverage. |
+| `npm.cmd run typecheck` | 0 | Strict TypeScript check passed after final test additions. |
+| `npm.cmd run lint` | 0 | No errors; one existing warning remains in `components/LocaleToggle.tsx` for unused `messages`. |
+| `npm.cmd run build` | 0 | Production build passed; same unused `messages` warning. Build ran after all production-code edits; only test additions followed it. |
+
+No real two-tab browser test was performed. These results do not claim browser-level media success. No deployment was performed.
+
+### Requested Chromium diagnostic run (2026-10-27)
+
+- Playwright 1.64.1 launched the installed Microsoft Edge Chromium channel successfully in headless mode. Playwright's managed Chromium binary is absent. The harness requests Chromium fake UI/device media flags; any resulting capture would be simulated and would not count as real desktop capture.
+- The Next.js dev server responded with HTTP 200 at `http://localhost:3001`. Two pages were created in one browser context and loaded the app. The host create action was clicked, but Presence never completed; the page showed `Could not connect. Check your connection and try again.` No lobby code, participant roster, role, or host election was produced.
+- Direct HTTPS connectivity to `ccwirosetedetdlrsdtu.supabase.co` on port 443 failed (`Unable to connect to the remote server`). The actual browser test therefore stopped before channel subscription / Presence. Offers, answers, ICE, RTCPeerConnection states, remote tracks, and playable video are unobserved. The requested browser-level reproduction cannot be completed in this network environment, and no WebRTC root cause or fix is claimed.
+- Browser test artifact: `tests/browser/webrtc-diagnostic.spec.ts`. The first runner invocation used the absent managed Chromium; the Edge-channel run reached the app. An initial test selector used the wrong locale query and timed out before lobby creation; after correction, lobby creation failed with the app's connection error as above. The spec still needs an actual successful Realtime environment and a review pass before it can be treated as a regression test.
+- To continue, run this browser test where the configured Supabase Realtime endpoint is reachable (and confirm the local public URL/anon key is current). Capture remains synthetic under fake-media flags; real screen selection still requires a supported interactive browser capture flow. Once signaling is reachable, collect the requested state telemetry, reproduce/fix at the identified failing stage, exercise the full lifecycle matrix, and run final test/typecheck/lint/build commands.
+
+### Supabase network and two-tab follow-up (2026-10-27)
+
+- Sanitized configuration inspection confirmed both required `.env.local` variables are present. The URL is HTTPS, has no extra path, and targets `ccwirosetedetdlrsdtu.supabase.co`; it is not a placeholder. Next.js reported `.env.local` as its loaded environment source. No values were printed or changed.
+- Failure category in the original constrained run: sandbox outbound egress denial. DNS resolved to `104.18.38.10` and `172.64.149.246`; Node HTTPS and WebSocket attempts inside the sandbox failed with `EACCES`, and the Windows TCP probe failed there. With the approved external-network execution, PowerShell TCP/HTTPS succeeded (port 443 / HTTP 200), Node HTTPS returned HTTP 200, and Node Realtime completed a WebSocket upgrade.
+- Edge 156.0.4314.42 had no Playwright proxy override. Windows environment, WinHTTP, and user Internet Settings showed no configured proxy; no named active VPN adapter was reported. A direct browser probe produced a transient WebSocket error once, then completed HTTP 101 upgrades with both Edge's default proxy discovery and `--no-proxy-server`. No stable proxy, TLS, DNS, or Supabase authentication/configuration failure was found. No proxy override or security bypass was added.
+- The first full browser retries exposed stale harness assumptions (locale persistence, display-name hydration, lobby-code lookup, and `MediaStream` object assertion); these were corrected only in `tests/browser/webrtc-diagnostic.spec.ts`. The successful rerun completed the two-tab lobby and Presence flow, targeted offer/answer, ICE exchange, peer connection, remote tracks, and playback. Browser diagnostics reported host/viewer video elements with `srcObject`, viewer `readyState: 4`, 1280x720 dimensions, unpaused playback, and no playback error. The Playwright fake media flags mean capture was synthetic.
+- No WebRTC failure was reproduced in the successful run, so there is no failing WebRTC stage to identify. The earlier run stopped before WebRTC at the realtime/lobby connection stage. No application signaling, authentication, or WebRTC logic changed; no deployment was performed. Real screen capture, audio audibility, cross-device behavior, and the full Task 09/10 manual matrix remain unverified.
+
+### Headed native screen-capture follow-up (2026-10-27)
+
+- Updated `tests/browser/webrtc-diagnostic.spec.ts` to run only with `SYNCWATCH_REAL_CAPTURE=1`, in headed Microsoft Edge, without fake-media flags. It waits for the lobby controls instead of `networkidle`, which cannot settle while Realtime connections are active. The test clicked the actual application Start sharing button; the user selected a window through Edge's native picker.
+- Result: same-lobby Presence showed Browser Host and Browser Viewer. Host capture track was `live`, `displaySurface: window`, 1280x686 at 30fps. The host added a live video track to its sender. Offer and answer descriptions completed; host and viewer peer connections reached ICE `connected` and connection `connected`. Viewer received a video `ontrack`; its video had a source, was unpaused, reached `readyState: 4`, rendered 1280x686, and reported no playback error.
+- Comparison: the successful synthetic run also completed offer/answer, ICE, remote track delivery, and playback (`readyState: 4`, 1280x720). The first observed difference is capture geometry/source: real capture was a selected window at 1280x686, while synthetic capture was 1280x720. No failure stage differs; real capture also passed through the viewer video stage. The normal-browser user report was not reproduced by this run, so no WebRTC application fix is supported.
+- Browser console recorded one viewer-side 404 resource load; media capture, negotiation, and playback succeeded. The missing resource was not identified as related to media. The diagnostic output excludes SDP and ICE candidate contents.
+- Verification: the headed Playwright test passed after native picker interaction; `npm.cmd run typecheck` passed after the final diagnostic edit. No application WebRTC logic was modified and nothing was deployed.

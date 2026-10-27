@@ -88,6 +88,14 @@ describe("lobby session creation and joining", () => {
     });
   });
 
+  it("allocates distinct Presence identities for independent tab sessions", () => {
+    const first = createLobbySession({ createChannel, createMemberId: () => "tab-a" });
+    const second = createLobbySession({ createChannel, createMemberId: () => "tab-b" });
+    void first.join("ABC234", "Alex");
+    void second.join("ABC234", "Sam");
+    expect(createChannel.mock.calls.slice(-2)).toEqual([["ABC234", "tab-a"], ["ABC234", "tab-b"]]);
+  });
+
   it("rejects invalid code or name without allocating a channel", () => {
     const lobby = session();
     expect(lobby.join("ABC-34", "Alex")).toMatchObject({ ok: false, reason: "invalid-code" });
