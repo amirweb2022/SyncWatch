@@ -10,7 +10,9 @@ export interface PeerAdapter {
   ontrack: ((event: RTCTrackEvent) => void) | null;
   onconnectionstatechange?: (() => void) | null;
   oniceconnectionstatechange?: (() => void) | null;
+  onicegatheringstatechange?: (() => void) | null;
   readonly iceConnectionState?: RTCIceConnectionState;
+  readonly iceGatheringState?: RTCIceGatheringState;
   addTrack(track: MediaStreamTrack, stream: MediaStream): RTCRtpSender;
   createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit>;
   createAnswer(): Promise<RTCSessionDescriptionInit>;
@@ -19,6 +21,10 @@ export interface PeerAdapter {
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void>;
   close(): void;
 }
+
+interface CandidateStats { readonly type: string; readonly candidateType?: string }
+interface CandidatePairStats { readonly type: string; readonly localCandidateId?: string; readonly remoteCandidateId?: string }
+interface TransportStats { readonly type: string; readonly selectedCandidatePairId?: string }
 
 export interface PeerManagerOptions {
   readonly lobbyId?: string | null;
@@ -31,6 +37,8 @@ export interface PeerManagerOptions {
   readonly onTrack?: (event: RTCTrackEvent) => void;
   readonly onError?: (reason: "peer-failed") => void;
   readonly onConnectionState?: (state: RTCPeerConnectionState) => void;
+  readonly onIceDiagnostics?: (diagnostics: { readonly candidateCounts: { readonly host: number; readonly srflx: number; readonly relay: number; readonly other: number }; readonly localType: string; readonly remoteType: string; readonly connection: "relayed" | "direct-or-unknown" }) => void;
+  readonly getStats?: () => Promise<RTCStatsReport>;
 }
 
 export interface PeerManager {
@@ -46,6 +54,8 @@ export interface PeerManager {
 export function createPeerManager(options: PeerManagerOptions): PeerManager {
   const peer = options.peerFactory();
   let closed = false;
+  let connected = false;
+  let reportSelectedPair: () => Promise<void> = async () => {};
   let remoteReady = false;
   let operation = Promise.resolve();
   const queuedCandidates: RTCIceCandidateInit[] = [];
@@ -96,14 +106,60 @@ export function createPeerManager(options: PeerManagerOptions): PeerManager {
   };
   peer.onconnectionstatechange = () => {
     if (!closed && peer.connectionState) {
+      connected = peer.connectionState === "connected";
       logWebRtcDiagnostic("RTCPeerConnection state", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId, state: peer.connectionState });
+      if (peer.connectionState === "connected") void reportSelectedPair();
       options.onConnectionState?.(peer.connectionState);
     }
   };
   peer.oniceconnectionstatechange = () => {
     if (!closed && peer.iceConnectionState) logWebRtcDiagnostic("ICE connection state", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: null, streamSessionId: options.sessionId, state: peer.iceConnectionState });
   };
-
+  const reportIceDiagnostics = (): void => {
+    if (closed || !peer.iceGatheringState) return;
+    logWebRtcDiagnostic("ICE gathering state", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId, state: peer.iceGatheringState });
+    if (peer.iceGatheringState === "complete" || connected) void reportSelectedPair();
+  };
+  const nativePeer = peer as PeerAdapter & { getStats?: () => Promise<RTCStatsReport> };
+  if (options.getStats) nativePeer.getStats = options.getStats;
+  peer.onicegatheringstatechange = reportIceDiagnostics;
+  reportIceDiagnostics();
+  reportSelectedPair = async (): Promise<void> => {
+    if (closed || !nativePeer.getStats) return;
+    try {
+      const stats = await nativePeer.getStats();
+      const statsMap = stats as RTCStatsReport & { forEach(callback: (value: RTCStats, key: string, map: RTCStatsReport) => void): void };
+      const statById = (id: string): RTCStats | undefined => statsMap.get(id);
+      const candidateCounts = { host: 0, srflx: 0, relay: 0, other: 0 };
+      statsMap.forEach((stat) => {
+        if (stat.type !== "local-candidate" && stat.type !== "remote-candidate") return;
+        const type = (stat as RTCStats & CandidateStats).candidateType;
+        if (type === "host" || type === "srflx" || type === "relay") candidateCounts[type] += 1;
+        else candidateCounts.other += 1;
+      });
+      logWebRtcDiagnostic("ICE candidate type counts", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId, ...candidateCounts });
+      let selectedId: string | undefined;
+      statsMap.forEach((stat) => {
+        const transport = stat as RTCStats & TransportStats;
+        if (transport.type === "transport" && typeof transport.selectedCandidatePairId === "string") selectedId = transport.selectedCandidatePairId;
+      });
+      if (!selectedId) return;
+      const pair = statById(selectedId);
+      if (!pair || pair.type !== "candidate-pair") return;
+      const candidatePair = pair as RTCStats & CandidatePairStats;
+      const local = typeof candidatePair.localCandidateId === "string" ? statById(candidatePair.localCandidateId) : undefined;
+      const remote = typeof candidatePair.remoteCandidateId === "string" ? statById(candidatePair.remoteCandidateId) : undefined;
+      const localStats = local as (RTCStats & CandidateStats) | undefined;
+      const remoteStats = remote as (RTCStats & CandidateStats) | undefined;
+      const localType = localStats && localStats.type === "local-candidate" && typeof localStats.candidateType === "string" ? localStats.candidateType : "unknown";
+      const remoteType = remoteStats && remoteStats.type === "remote-candidate" && typeof remoteStats.candidateType === "string" ? remoteStats.candidateType : "unknown";
+      const relay = localType === "relay" || remoteType === "relay";
+      options.onIceDiagnostics?.({ candidateCounts, localType, remoteType, connection: relay ? "relayed" : "direct-or-unknown" });
+      logWebRtcDiagnostic("selected ICE candidate pair", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId, localType, remoteType, connection: relay ? "relayed" : "direct-or-unknown" });
+    } catch {
+      logWebRtcDiagnostic("ICE stats unavailable", { lobbyId: options.lobbyId ?? null, localParticipantId: options.selfMemberId, remoteParticipantId: options.remoteMemberId, hostId: options.hostMemberId ?? null, streamSessionId: options.sessionId });
+    }
+  };
   return {
     addTracks(tracks) {
       return enqueue(async () => {
@@ -162,6 +218,7 @@ export function createPeerManager(options: PeerManagerOptions): PeerManager {
       peer.ontrack = null;
       peer.onconnectionstatechange = null;
       peer.oniceconnectionstatechange = null;
+      peer.onicegatheringstatechange = null;
       try {
         peer.close();
       } catch {

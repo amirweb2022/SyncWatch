@@ -1,6 +1,6 @@
 # Phase 3: WebRTC Screen Sharing â€” Task Plan
 
-Phase 3 Tasks 01-08 are complete; Tasks 09-10 remain planned. Each implementation task must follow RED â†’ GREEN â†’ REFACTOR and update this file and `progress.md` when that task is completed. Keep each task independently verifiable and preserve Phase 2 behavior.
+Phase 3 Tasks 01-08 are complete. Task 11 (ICE/Safari investigation) is implemented; Tasks 09-10 remain planned. Each implementation task must follow RED â†’ GREEN â†’ REFACTOR and update this file and `progress.md` when that task is completed. Keep each task independently verifiable and preserve Phase 2 behavior.
 
 ## 01 â€” Stream and signaling contracts
 
@@ -273,3 +273,12 @@ Phase 3 Tasks 01-08 are complete; Tasks 09-10 remain planned. Each implementatio
 - Fix: a viewer may adopt the generation only from a present, elected current host's offer targeted to that viewer while Presence is current. Target and sender validation remains enabled. This also covers the host's reconciliation offer after a rejoin. Existing membership cleanup and recovery continue to create/close peers as before.
 - Added development-only `[syncwatch-webrtc]` logs for share announcement/start, targeted offer/answer/ICE send and receive, candidate exchange, peer and ICE connection states, tracks, video playback failures, and signaling rejection reasons. Logs omit SDP, candidate contents, keys, and credentials.
 - Browser acceptance remains outstanding; automated fakes do not prove two-tab media delivery.
+
+
+## 11 ? ICE configuration and browser compatibility
+
+**Status:** Implementation complete; browser/network validation pending.
+
+**Scope:** Audit native peer configuration and diagnostics; wire optional TURN settings while preserving existing variables; support multiple TURN URLs and TURN/TLS; add opt-in forced relay; report sanitized candidate type counts and selected pair; localize missing WebRTC capability; document a real browser/network test matrix.
+
+**Known external requirements:** Credential validity and relay selection cannot be established without reachable configured TURN infrastructure. This repository has no trusted credential issuer. Do not add long-lived privileged credentials to `NEXT_PUBLIC_*`; secure temporary credentials need an external issuer and deployment/configuration work.

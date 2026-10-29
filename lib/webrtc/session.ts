@@ -3,12 +3,15 @@ import type { GenerationId, QualityPreset, RealtimeEvent, StreamStatus } from ".
 import type { CaptureOutcome, CaptureSession } from "./capture";
 import { createPeerManager, type PeerAdapter, type PeerManager } from "./peer-manager";
 import { logWebRtcDiagnostic } from "./diagnostics";
+import { buildIceConfiguration, type TurnEnvironment } from "./ice";
+
+export const FORCE_RELAY_DIAGNOSTIC = process.env.NEXT_PUBLIC_SYNCWATCH_FORCE_RELAY === "1";
 
 export interface StreamSnapshot {
   readonly status: StreamStatus;
   readonly sessionId: GenerationId | null;
   readonly role: "host" | "viewer" | "none";
-  readonly failure: "capture-unsupported" | "capture-denied" | "capture-cancelled" | "capture-failed" | "connection-failed" | "playback-failed" | null;
+  readonly failure: "capture-unsupported" | "webrtc-unsupported" | "capture-denied" | "capture-cancelled" | "capture-failed" | "connection-failed" | "playback-failed" | null;
 }
 
 export type StreamPeer = PeerManager;
@@ -43,7 +46,20 @@ const IDLE: StreamSnapshot = Object.freeze({ status: "idle", sessionId: null, ro
 export function createStreamSession(dependencies: StreamSessionDependencies): StreamSession {
   const makePeer = dependencies.createPeer ?? createPeerManager;
   const makeSessionId = dependencies.createSessionId ?? (() => crypto.randomUUID());
-  const makeNativePeer = dependencies.peerFactory ?? (() => new RTCPeerConnection() as PeerAdapter);
+  const turnEnvironment: TurnEnvironment = {
+    NEXT_PUBLIC_TURN_URL: process.env.NEXT_PUBLIC_TURN_URL,
+    NEXT_PUBLIC_TURN_USERNAME: process.env.NEXT_PUBLIC_TURN_USERNAME,
+    NEXT_PUBLIC_TURN_CREDENTIAL: process.env.NEXT_PUBLIC_TURN_CREDENTIAL,
+  };
+  const peerConfiguration = buildIceConfiguration(turnEnvironment, FORCE_RELAY_DIAGNOSTIC);
+  const makeNativePeer = (): PeerAdapter => {
+    if (typeof RTCPeerConnection === "undefined") {
+      publish({ status: "failed", sessionId: null, role: currentRole(), failure: "webrtc-unsupported" });
+      logWebRtcDiagnostic("WebRTC unsupported", { reason: "RTCPeerConnection-unavailable" });
+      throw new Error("WebRTC peer connections are unavailable");
+    }
+    return new RTCPeerConnection({ ...peerConfiguration, iceServers: [...peerConfiguration.iceServers] }) as PeerAdapter;
+  };
   let snapshot = IDLE;
   let disposed = false;
   let generation: GenerationId | null = null;
@@ -118,7 +134,7 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
     viewerOfferApplied = false;
     const peer = makePeer({
       lobbyId: lobby().code, hostMemberId: hostId, selfMemberId: selfId, remoteMemberId: hostId, sessionId,
-      peerFactory: makeNativePeer,
+      peerFactory: dependencies.peerFactory ?? makeNativePeer,
       send: (event) => dependencies.channel.send(event),
       onTrack: (event) => {
         if (viewerPeer !== peer || generation !== sessionId) return;
@@ -193,7 +209,7 @@ export function createStreamSession(dependencies: StreamSessionDependencies): St
     if (!selfId) return;
     const peer = makePeer({
       lobbyId: lobby().code, hostMemberId: selfId, selfMemberId: selfId, remoteMemberId: event.senderId, sessionId: event.sessionId,
-      peerFactory: makeNativePeer,
+      peerFactory: dependencies.peerFactory ?? makeNativePeer,
       send: (signal) => dependencies.channel.send(signal),
       onError: () => {
         if (hostPeers.get(event.senderId) !== peer || event.sessionId !== generation) return;

@@ -20,6 +20,7 @@ describe("Task 08 localized stream UI projection", () => {
     expect(getStreamUiView(snapshot("connecting", "viewer"), true, messages.en).status).toBe(messages.en.streamConnecting);
     expect(getStreamUiView({ ...snapshot("failed", "host"), failure: "capture-failed" }, true, messages.fa).status).toBe(messages.fa.captureFailed);
     expect(getStreamUiView({ ...snapshot("failed", "host"), failure: "capture-denied" }, true, messages.fa).status).toBe(messages.fa.captureDenied);
+    expect(getStreamUiView({ ...snapshot("failed", "host"), failure: "webrtc-unsupported" }, true, messages.en).status).toBe(messages.en.webRtcUnsupported);
     expect(getStreamUiView({ ...snapshot("failed", "host"), failure: "capture-unsupported" }, true, messages.en).status).toBe(messages.en.captureUnsupported);
     expect(getStreamUiView({ ...snapshot("idle", "host"), failure: "capture-cancelled" }, true, messages.fa).status).toBe(messages.fa.captureCancelled);
   });

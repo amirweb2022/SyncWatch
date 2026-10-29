@@ -317,3 +317,26 @@ No real two-tab browser test was performed. These results do not claim browser-l
 - Comparison: the successful synthetic run also completed offer/answer, ICE, remote track delivery, and playback (`readyState: 4`, 1280x720). The first observed difference is capture geometry/source: real capture was a selected window at 1280x686, while synthetic capture was 1280x720. No failure stage differs; real capture also passed through the viewer video stage. The normal-browser user report was not reproduced by this run, so no WebRTC application fix is supported.
 - Browser console recorded one viewer-side 404 resource load; media capture, negotiation, and playback succeeded. The missing resource was not identified as related to media. The diagnostic output excludes SDP and ICE candidate contents.
 - Verification: the headed Playwright test passed after native picker interaction; `npm.cmd run typecheck` passed after the final diagnostic edit. No application WebRTC logic was modified and nothing was deployed.
+
+
+### ICE configuration and Safari compatibility investigation
+
+- **Audit:** Runtime `createStreamSession` previously created `new RTCPeerConnection()` with browser defaults, so the existing `buildIceServers()` policy (Google STUN plus complete optional `NEXT_PUBLIC_TURN_*`) was never applied. Configured TURN values therefore did not provide relay connectivity. Environment inspection confirmed only that the variable names exist in `.env.example`; credential values/validity were not disclosed or checked with a TURN server. No live candidate-type or selected-pair evidence was available before this change.
+- **Signaling/ICE queue:** Typed targeted offer/answer/ICE events and delivery-result checks are present. The peer manager queues remote ICE until `remoteDescription` is set and flushes in arrival order. Existing recovery handles `disconnected` with a grace period, `failed` immediately, one ICE restart, then one bounded recreation.
+- **RED:** Added tests for comma-separated multi-URL TURN including `turns:` and filtering malformed entries; they failed against the single-URL parser. Added stats test for selected relay pair/candidate-type counts and redaction.
+- **GREEN:** Existing TURN env names remain supported; valid comma-separated `turn:`/`turns:` URLs now create one ICE server with credentials. Native peers receive this configuration. `NEXT_PUBLIC_SYNCWATCH_FORCE_RELAY=1` opts into `iceTransportPolicy: relay` for diagnostics; default remains `all`. Development diagnostics report gathering/connection states, aggregate candidate types and selected pair type/direct-vs-relay through `getStats()`, without candidate strings, addresses, SDP, or credential fields. Unsupported `RTCPeerConnection` maps to a localized error instead of endless connecting.
+- **Safari review:** Capture uses feature detection of `mediaDevices.getDisplayMedia`; capture starts from a button action. Viewer video is `autoPlay playsInline` with muted attribute and an explicit play action after rejection. No codec pinning/transceiver manipulation is used; `addTrack` and `restartIce` are native with optional restart checks. macOS Safari capture, iOS Safari viewer playback, actual audio policy, and real codec negotiation remain unverified. No browser sniffing was added.
+- **Transport:** TURN service was not introduced. Operations need a reachable TURN service, UDP endpoint plus TURN/TLS endpoint for restrictive networks, short-lived credentials from a trusted issuer, bandwidth/egress budget, and abuse controls. This frontend has no secure issuer; static public credential variables are copyable and not suitable for privileged long-lived credentials. No estimated price is stated because provider and traffic volume are unspecified.
+- **Browser matrix:**
+
+| Host ? Viewer | Network | Path | Status |
+|---|---|---|---|
+| Chrome desktop ? Chrome desktop | Same network | Direct | Prior local Edge/Chromium success documented; synthetic and headed native-capture same-browser tests in progress history |
+| Chrome desktop ? Chrome desktop | Different networks | Direct | Not tested here |
+| Chrome desktop ? Chrome desktop | Different networks | Forced TURN relay | Not tested; requires real TURN service |
+| Chrome desktop ? Safari macOS | Same/different | Direct/relay | Not tested on real Safari |
+| Chrome desktop ? Safari iPhone | Same/different | Direct/relay | Not tested on real iPhone |
+| Safari macOS ? Chrome desktop | Same/different | Direct/relay | Not tested |
+| Playwright WebKit preliminary | Local | Direct/relay | Not run; requires working Supabase endpoint and available WebKit browser |
+
+- **Scope limitation:** Earlier reports and artifacts do not include Safari or cross-network runs. A local same-network success cannot establish cross-network or Safari compatibility. The real TURN test cannot be completed without supplied/available infrastructure. No deployment performed.
